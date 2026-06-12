@@ -221,7 +221,9 @@ function LoginModal({ onClose, onAuth }) {
 }
 
 // ---------- "¿Quieres ser parte?" ----------
-const JOIN_EMAIL = "bienvenido@aplauzo.art";
+// El mensaje se entrega por FormSubmit (servicio gratuito) a este correo.
+const JOIN_EMAIL = "dschamorro@gmail.com";
+const JOIN_ENDPOINT = "https://formsubmit.co/ajax/" + JOIN_EMAIL;
 
 function JoinModal({ onClose }) {
   const [name, setName] = React.useState("");
@@ -229,6 +231,8 @@ function JoinModal({ onClose }) {
   const [kind, setKind] = React.useState("Compañía o colectivo");
   const [msg, setMsg] = React.useState("");
   const [sent, setSent] = React.useState(false);
+  const [sending, setSending] = React.useState(false);
+  const [error, setError] = React.useState("");
 
   React.useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -240,18 +244,43 @@ function JoinModal({ onClose }) {
 
   const submit = (e) => {
     e.preventDefault();
-    if (!valid) return;
-    const subject = "Quiero ser parte de Aplauzo — " + name.trim();
-    const body =
-      "Nombre / proyecto: " + name.trim() + "\n" +
-      "Correo: " + email.trim() + "\n" +
-      "Soy: " + kind + "\n\n" +
-      (msg.trim() ? msg.trim() + "\n\n" : "") +
-      "— Enviado desde Aplauzo";
-    window.location.href = "mailto:" + JOIN_EMAIL +
-      "?subject=" + encodeURIComponent(subject) +
-      "&body=" + encodeURIComponent(body);
-    setSent(true);
+    if (!valid || sending) return;
+    setSending(true);
+    setError("");
+    fetch(JOIN_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({
+        _subject: "Únete a Aplauzo — " + name.trim(),
+        Nombre: name.trim(),
+        Correo: email.trim(),
+        Tipo: kind,
+        Mensaje: msg.trim() || "(sin mensaje)",
+        _template: "table"
+      })
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data && (data.success === "true" || data.success === true)) {
+          setSent(true);
+        } else {
+          throw new Error("envío rechazado");
+        }
+      })
+      .catch(() => {
+        // Si falla el servicio, usamos el correo del visitante como respaldo.
+        const body =
+          "Nombre / proyecto: " + name.trim() + "\n" +
+          "Correo: " + email.trim() + "\n" +
+          "Soy: " + kind + "\n\n" +
+          (msg.trim() ? msg.trim() + "\n\n" : "") +
+          "— Enviado desde Aplauzo";
+        window.location.href = "mailto:" + JOIN_EMAIL +
+          "?subject=" + encodeURIComponent("Únete a Aplauzo — " + name.trim()) +
+          "&body=" + encodeURIComponent(body);
+        setError("No pudimos enviarlo automáticamente. Abrimos tu correo como respaldo.");
+      })
+      .finally(() => setSending(false));
   };
 
   return (
@@ -293,8 +322,9 @@ function JoinModal({ onClose }) {
                 <textarea value={msg} onChange={(e) => setMsg(e.target.value)} rows="3"
                   placeholder="Tu obra, tu espacio, lo que quieras compartir…"></textarea>
               </label>
-              <button className="btn btn-solid login-submit" disabled={!valid} type="submit">
-                Enviar a {JOIN_EMAIL}
+              {error && <p className="join-lede" style={{ color: "#a33" }}>{error}</p>}
+              <button className="btn btn-solid login-submit" disabled={!valid || sending} type="submit">
+                {sending ? "Enviando…" : "Enviar"}
               </button>
             </form>
           </React.Fragment>
@@ -303,8 +333,8 @@ function JoinModal({ onClose }) {
             <span className="sched-check">✓</span>
             <h3 className="sched-done-title">¡Gracias!</h3>
             <p className="join-done-note">
-              Abrimos tu correo con el mensaje listo para <b>{JOIN_EMAIL}</b>.
-              Si no se abrió, escríbenos directamente a esa dirección.
+              Recibimos tu mensaje. Te escribiremos pronto para sumarte
+              a la cartelera iberoamericana.
             </p>
             <button className="btn btn-solid" onClick={onClose}>Listo</button>
           </div>

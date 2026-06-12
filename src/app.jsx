@@ -1134,7 +1134,7 @@ function Footer() {
           </div>
           <div className="foot-col">
             <span className="fc-head">Aplauzo</span>
-            <a href="#">Sobre el proyecto</a><a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("aplauzo:join")); }}>Publica tu obra</a><a href={"mailto:bienvenido@aplauzo.art"}>Contacto</a>
+            <a href="#">Sobre el proyecto</a><a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("aplauzo:join")); }}>Únete</a><a href={"mailto:bienvenido@aplauzo.art"}>Contacto</a>
           </div>
         </div>
       </div>
