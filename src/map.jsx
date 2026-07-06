@@ -71,26 +71,9 @@ function AplauzoMap({ onSelect, variant }) {
         onSelect(f.properties.name);
       });
 
-    // etiquetas externas (estilo cartografía editorial) para países con obras
-    const OFF = {
-      "Chile":     { x: -70, y: 4,  a: "end" },
-      "Argentina": { x: 58,  y: 28, a: "start" },
-      "Spain":     { x: 4,   y: -40, a: "middle" }
-    };
-    const labelG = g.append("g").attr("class", "labels");
-    features.filter(hasWorks).forEach((f) => {
-      const c = path.centroid(f);
-      const o = OFF[f.properties.name] || { x: 0, y: -26, a: "middle" };
-      const lx = c[0] + o.x, ly = c[1] + o.y;
-      labelG.append("line").attr("class", "cn-leader")
-        .attr("x1", c[0]).attr("y1", c[1]).attr("x2", lx).attr("y2", ly);
-      labelG.append("circle").attr("class", "cn-pin")
-        .attr("cx", c[0]).attr("cy", c[1]).attr("r", 1.6);
-      labelG.append("text").attr("class", "cn-label")
-        .attr("x", lx).attr("y", ly).attr("text-anchor", o.a)
-        .attr("dy", o.a === "middle" ? "-0.1em" : "0.32em")
-        .text(IBERO[f.properties.name].toUpperCase());
-    });
+    // Sin etiquetas fijas: el nombre del país aparece en el tooltip al pasar
+    // el mouse o tocar (ver el manejador "mousemove" de arriba). Así el mapa
+    // queda limpio, sin la maraña de nombres superpuestos.
 
   }, [features]);
 
