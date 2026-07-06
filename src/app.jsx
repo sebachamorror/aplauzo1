@@ -91,7 +91,7 @@ const SECTIONS = [
 ];
 
 // ---------- masthead ----------
-function Masthead({ onHome, onNavigate, onSearch, user, onLogin, onLogout }) {
+function Masthead({ onHome, onNavigate, onSearch, user, onLogin, onLogout, onPublish, onMySubmissions, onAdmin }) {
   const [open, setOpen] = useState(false);
   const [menu, setMenu] = useState(false);
   const handleClick = (e, short) => {
@@ -118,6 +118,10 @@ function Masthead({ onHome, onNavigate, onSearch, user, onLogin, onLogout }) {
             <span className="tool-ico">⌕</span>
             <span className="tool-label">Buscar</span>
           </button>
+          <button className="tool-btn publish-trigger" onClick={onPublish}>
+            <span className="tool-ico">＋</span>
+            <span className="tool-label">Publicar</span>
+          </button>
           {!user &&
             <button className="tool-btn login-trigger" onClick={onLogin}>Entrar</button>}
           {user &&
@@ -129,6 +133,10 @@ function Masthead({ onHome, onNavigate, onSearch, user, onLogin, onLogout }) {
               {menu &&
                 <div className="user-menu" onMouseLeave={() => setMenu(false)}>
                   <span className="um-mail">{user.email}</span>
+                  <button className="um-item" onClick={() => { setMenu(false); onPublish(); }}>Publicar contenido</button>
+                  <button className="um-item" onClick={() => { setMenu(false); onMySubmissions(); }}>Mis envíos</button>
+                  {window.isAdmin && window.isAdmin(user) &&
+                    <button className="um-item" onClick={() => { setMenu(false); onAdmin(); }}>Intranet · Moderación</button>}
                   <button className="um-item" onClick={() => { setMenu(false); onLogout(); }}>Cerrar sesión</button>
                 </div>}
             </div>}
@@ -1134,7 +1142,7 @@ function Footer() {
           </div>
           <div className="foot-col">
             <span className="fc-head">Aplauzo</span>
-            <a href="#">Sobre el proyecto</a><a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("aplauzo:join")); }}>Únete</a><a href={"mailto:bienvenido@aplauzo.art"}>Contacto</a>
+            <a href="#">Sobre el proyecto</a><a href="#" onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent("aplauzo:publish")); }}>Publicar</a><a href={"mailto:bienvenido@aplauzo.art"}>Contacto</a>
           </div>
         </div>
       </div>
@@ -1152,16 +1160,39 @@ function App() {
   const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const [showSearch, setShowSearch] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
-  const [showJoin, setShowJoin] = useState(false);
+  const [submitType, setSubmitType] = useState(null); // null cerrado; "" abre con selector
+  const [showMine, setShowMine] = useState(false);
+  const [route, setRoute] = useState(() => (window.location.hash || "").replace(/^#\/?/, ""));
   const { user, login, logout } = useAuth();
 
   useEffect(() => { window.scrollTo(0, 0); }, [view]);
 
+  // enrutado por hash (#/admin)
   useEffect(() => {
-    const onJoin = () => setShowJoin(true);
-    window.addEventListener("aplauzo:join", onJoin);
-    return () => window.removeEventListener("aplauzo:join", onJoin);
+    const onHash = () => setRoute((window.location.hash || "").replace(/^#\/?/, ""));
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
   }, []);
+  const goAdmin = () => { window.location.hash = "#/admin"; };
+  const exitAdmin = () => { window.location.hash = ""; setRoute(""); };
+
+  // publicar: exige sesión
+  const openPublish = (type) => {
+    if (!user) { setShowLogin(true); return; }
+    setSubmitType(type || "");
+  };
+  useEffect(() => { window.aplauzoPublish = openPublish; }, [user]);
+
+  // "Publicar" desde el footer / eventos externos
+  useEffect(() => {
+    const onPub = () => openPublish();
+    window.addEventListener("aplauzo:publish", onPub);
+    window.addEventListener("aplauzo:join", onPub); // compatibilidad con el enlace antiguo
+    return () => {
+      window.removeEventListener("aplauzo:publish", onPub);
+      window.removeEventListener("aplauzo:join", onPub);
+    };
+  }, [user]);
 
   useEffect(() => {
     const p = PAPERS[t.paper] || PAPERS["Cálido"];
@@ -1198,11 +1229,18 @@ function App() {
     else if (short === "Políticas") setView({ name: "politicas" });
   };
 
+  // intranet de moderación a pantalla completa
+  if (route === "admin") {
+    return <AdminPanel user={user} onExit={exitAdmin} />;
+  }
+
   return (
     <div className="app">
       <Masthead onHome={goHome} onNavigate={navigateTo}
         onSearch={() => setShowSearch(true)}
-        user={user} onLogin={() => setShowLogin(true)} onLogout={logout} />
+        user={user} onLogin={() => setShowLogin(true)} onLogout={logout}
+        onPublish={() => openPublish()} onMySubmissions={() => setShowMine(true)}
+        onAdmin={goAdmin} />
       {view.name === "home" &&
         <Home onSelectCountry={goCountry} onOpenWork={goWork} onNavigate={navigateTo} />}
       {view.name === "opinion" &&
@@ -1231,8 +1269,11 @@ function App() {
           onGo={(nav) => setView(nav)} />}
       {showLogin &&
         <LoginModal onClose={() => setShowLogin(false)} onAuth={login} />}
-      {showJoin &&
-        <JoinModal onClose={() => setShowJoin(false)} />}
+      {submitType !== null &&
+        <SubmitModal user={user} initialType={submitType || undefined}
+          onClose={() => setSubmitType(null)} />}
+      {showMine &&
+        <MySubmissions user={user} onClose={() => setShowMine(false)} />}
 
       <TweaksPanel title="Tweaks">
         <TweakSection label="Atmósfera" />
@@ -1248,4 +1289,11 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+// Esperamos a que se fusionen los envíos aprobados (window.APLAUZO_READY,
+// definido en src/live-data.js) antes del primer render. Si falla o tarda, monta igual.
+(function boot() {
+  const mount = () =>
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  const ready = window.APLAUZO_READY || Promise.resolve();
+  Promise.race([ready, new Promise(r => setTimeout(r, 4000))]).then(mount, mount);
+})();

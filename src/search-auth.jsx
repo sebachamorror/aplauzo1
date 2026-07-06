@@ -138,18 +138,44 @@ function SearchOverlay({ onClose, onGo }) {
   );
 }
 
-// ---------- login ----------
+// ---------- login (Supabase Auth real) ----------
+// Normaliza el usuario de Supabase a la forma que usa la interfaz: {id, name, email}.
+function SA_shapeUser(u) {
+  if (!u) return null;
+  const meta = u.user_metadata || {};
+  const name = (meta.name || meta.full_name || "").trim() || (u.email || "").split("@")[0];
+  return { id: u.id, name, email: u.email };
+}
+
 function useAuth() {
-  const [user, setUser] = React.useState(() => {
-    try { return JSON.parse(localStorage.getItem("aplauzo_user") || "null"); }
-    catch (e) { return null; }
-  });
-  const login = (u) => {
-    localStorage.setItem("aplauzo_user", JSON.stringify(u));
-    setUser(u);
-  };
-  const logout = () => { localStorage.removeItem("aplauzo_user"); setUser(null); };
-  return { user, login, logout };
+  const [user, setUser] = React.useState(null);
+  const [ready, setReady] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!window.SB) { setReady(true); return; }
+    window.SB.auth.getSession().then(({ data }) => {
+      setUser(SA_shapeUser(data.session && data.session.user));
+      setReady(true);
+    });
+    const { data: sub } = window.SB.auth.onAuthStateChange((_e, session) => {
+      setUser(SA_shapeUser(session && session.user));
+    });
+    return () => sub && sub.subscription && sub.subscription.unsubscribe();
+  }, []);
+
+  const login = () => {};
+  const logout = async () => { if (window.SB) await window.SB.auth.signOut(); };
+  return { user, login, logout, ready };
+}
+
+// Traduce errores comunes de Supabase Auth a español.
+function SA_authError(e) {
+  const m = (e && e.message) || "Ocurrió un error. Intenta de nuevo.";
+  if (/invalid login credentials/i.test(m)) return "Correo o contraseña incorrectos.";
+  if (/already registered|already been registered/i.test(m)) return "Ese correo ya tiene una cuenta. Entra en vez de crear una.";
+  if (/password should be at least/i.test(m)) return "La contraseña es muy corta (mínimo 6 caracteres).";
+  if (/email not confirmed/i.test(m)) return "Aún no confirmas tu correo. Revisa tu bandeja de entrada (y Spam).";
+  return m;
 }
 
 function LoginModal({ onClose, onAuth }) {
@@ -157,6 +183,9 @@ function LoginModal({ onClose, onAuth }) {
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [pass, setPass] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState("");
+  const [notice, setNotice] = React.useState("");
 
   React.useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -164,14 +193,35 @@ function LoginModal({ onClose, onAuth }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const valid = email.includes("@") && pass.length >= 4 && (mode === "in" || name.trim());
+  const valid = email.includes("@") && pass.length >= 6 && (mode === "in" || name.trim());
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
-    if (!valid) return;
-    const display = mode === "up" ? name.trim() : email.split("@")[0];
-    onAuth({ name: display, email });
-    onClose();
+    if (!valid || busy) return;
+    setErr(""); setNotice("");
+    if (!window.SB) { setErr("El backend no está configurado todavía (revisa src/supabase.js)."); return; }
+    setBusy(true);
+    try {
+      if (mode === "up") {
+        const { data, error } = await window.SB.auth.signUp({
+          email, password: pass, options: { data: { name: name.trim() } },
+        });
+        if (error) throw error;
+        if (data.user && !data.session) {
+          setNotice("Te enviamos un correo para confirmar tu cuenta. Ábrelo (revisa Spam) y luego entra.");
+          setBusy(false);
+          return;
+        }
+      } else {
+        const { error } = await window.SB.auth.signInWithPassword({ email, password: pass });
+        if (error) throw error;
+      }
+      if (onAuth) onAuth();
+      onClose();
+    } catch (e2) {
+      setErr(SA_authError(e2));
+      setBusy(false);
+    }
   };
 
   return (
@@ -201,15 +251,17 @@ function LoginModal({ onClose, onAuth }) {
               <label className="field">
                 <span>Contraseña</span>
                 <input type="password" value={pass} onChange={(e) => setPass(e.target.value)}
-                  placeholder="Mínimo 4 caracteres" />
+                  placeholder="Mínimo 6 caracteres" />
               </label>
-              <button className="btn btn-solid login-submit" disabled={!valid} type="submit">
-                {mode === "in" ? "Entrar" : "Crear cuenta"}
+              {err && <p className="login-err">{err}</p>}
+              {notice && <p className="login-notice">{notice}</p>}
+              <button className="btn btn-solid login-submit" disabled={!valid || busy} type="submit">
+                {busy ? "Un momento…" : (mode === "in" ? "Entrar" : "Crear cuenta")}
               </button>
             </form>
             <p className="login-switch">
               {mode === "in" ? "¿Aún no tienes cuenta? " : "¿Ya tienes cuenta? "}
-              <button onClick={() => setMode(m => m === "in" ? "up" : "in")}>
+              <button onClick={() => { setErr(""); setNotice(""); setMode(m => m === "in" ? "up" : "in"); }}>
                 {mode === "in" ? "Crear una" : "Entrar"}
               </button>
             </p>
